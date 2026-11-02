@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Basira Field Test</title>
+<meta name="description" content="Photograph a shelf: Basira finds every product, on your phone. Photos never leave the device.">
+<meta name="theme-color" content="#0E1512">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230E1512'/%3E%3Cpath fill='%23F4F5F0' d='M14 29V14h15v5.6h-9.4V29ZM50 35v15H35v-5.6h9.4V35Z'/%3E%3Crect x='26.7' y='26.7' width='10.6' height='10.6' fill='%23C8F135'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --bg: #0e1512; --surface: #16231e; --surface-2: #1d2b25; --border: #2a3832;
+    --text: #f4f5f0; --text-2: #b9beb3; --text-3: #8e958b;
+    --signal: #c8f135; --ink: #0e1512; --harissa: #f0644b;
+    --font: "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 var(--font); }
+  main {
+    max-width: 560px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column; gap: 16px;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; }
+  .brand svg { width: 28px; height: 28px; }
+  .lang { display: flex; gap: 4px; }
+  .lang button { background: none; border: 0; color: var(--text-3); font: 500 14px var(--font); padding: 6px 10px; border-radius: 999px; cursor: pointer; }
+  .lang button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+  h1 { font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; margin: 4px 0 0; font-weight: 600; text-wrap: balance; }
+  .sub { color: var(--text-2); margin: 0; }
+  .status { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+  .dot { width: 10px; height: 10px; background: var(--text-3); flex: none; }
+  .status.ready .dot { background: var(--signal); }
+  .status.error .dot { background: var(--harissa); }
+  .bar { height: 4px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--signal); transition: width .2s; }
+  .stage { position: relative; border-radius: 18px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); min-height: 240px; display: grid; place-items: center; }
+  .stage canvas { display: block; width: 100%; height: auto; }
+  .stage .empty { color: var(--text-3); text-align: center; padding: 32px; font-size: 15px; }
+  .stage .busy { position: absolute; inset: 0; display: none; place-items: center; background: rgba(14, 21, 18, .55); font-weight: 500; }
+  .stage.working .busy { display: grid; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+  .kpi b { display: block; font: 500 26px/1 var(--mono); letter-spacing: -0.02em; }
+  .kpi span { font-size: 12px; color: var(--text-2); }
+  .shelves { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; font-size: 14px; display: grid; gap: 6px; }
+  .shelves h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+  .row { display: grid; grid-template-columns: 70px 1fr 36px; gap: 10px; align-items: center; color: var(--text-2); }
+  .row i { display: block; height: 8px; border-radius: 0 4px 4px 0; background: var(--signal); }
+  .row b { font: 500 13px var(--mono); color: var(--text); text-align: right; }
+  .controls { display: grid; gap: 10px; margin-top: auto; }
+  .btn { height: 54px; border-radius: 14px; border: 0; font: 600 17px var(--font); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--signal); color: var(--ink); }
+  .btn.quiet { background: transparent; color: var(--text); border: 1px solid var(--border); height: 48px; font-size: 15px; }
+  .slider { display: grid; gap: 4px; font-size: 13px; color: var(--text-2); }
+  .slider div { display: flex; justify-content: space-between; }
+  input[type="range"] { width: 100%; accent-color: var(--signal); }
+  .note { font-size: 12px; color: var(--text-3); margin: 0; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#F4F5F0" d="M0 20V0h20v7.5H7.5V20ZM48 28v20H28v-7.5h12.5V28Z"/><rect x="15.5" y="15.5" width="17" height="17" fill="#C8F135"/></svg>
+      <span>Basira</span>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="fr" aria-pressed="true">FR</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <div>
+    <h1 data-t="title"></h1>
+    <p class="sub" data-t="sub"></p>
+  </div>
+
+  <div class="status" id="status" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <div style="flex:1">
+      <span id="statusText"></span>
+      <div class="bar" id="bar"><i id="barFill"></i></div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <p class="empty" id="empty" data-t="empty"></p>
+    <canvas id="canvas" hidden></canvas>
+    <div class="busy" data-t="reading"></div>
+  </div>
+
+  <div id="results" hidden>
+    <div class="kpis">
+      <div class="kpi"><b id="kFacings">0</b><span data-t="facings"></span></div>
+      <div class="kpi"><b id="kShelves">0</b><span data-t="shelves"></span></div>
+      <div class="kpi"><b id="kTime">0</b><span data-t="seconds"></span></div>
+    </div>
+    <div class="shelves" style="margin-top:10px">
+      <h2 data-t="perShelf"></h2>
+      <div id="shelfRows"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <label class="slider" for="sens">
+      <div><span data-t="sensitivity"></span><span id="sensValue" style="font-family:var(--mono)"></span></div>
+      <input id="sens" type="range" min="0.80" max="0.99" step="0.01" value="0.94">
+    </label>
+    <button class="btn primary" id="shoot" type="button" disabled>
+      <svg width="22" height="22" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M208 56h-27.7l-13.6-20.4A8 8 0 0 0 160 32H96a8 8 0 0 0-6.7 3.6L75.7 56H48a24 24 0 0 0-24 24v112a24 24 0 0 0 24 24h160a24 24 0 0 0 24-24V80a24 24 0 0 0-24-24Zm8 136a8 8 0 0 1-8 8H48a8 8 0 0 1-8-8V80a8 8 0 0 1 8-8h32a8 8 0 0 0 6.7-3.6L100.3 48h55.4l13.6 20.4A8 8 0 0 0 176 72h32a8 8 0 0 1 8 8ZM128 88a44 44 0 1 0 44 44 44 44 0 0 0-44-44Zm0 72a28 28 0 1 1 28-28 28 28 0 0 1-28 28Z"/></svg>
+      <span data-t="shoot"></span>
+    </button>
+    <button class="btn quiet" id="sample" type="button" disabled><span data-t="sample"></span></button>
+    <input id="file" class="sr" type="file" accept="image/*" capture="environment">
+    <p class="note" data-t="privacy"></p>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script>
+"use strict";
+const MODEL_URL = "model/detr-sku110k-int8.onnx";
+const MODEL_MB = 43;
+const CACHE = "basira-field-test-v1";
+const SAMPLE_URL = "https://images.unsplash.com/photo-1722639096482-4e1a805f9b0b?auto=format&fit=crop&w=1600&q=80";
+const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
+
+const T = {
+  fr: {
+    title: "Testez la détection en rayon",
+    sub: "Photographiez un rayon : Basira repère chaque produit, directement sur votre téléphone.",
+    empty: "Aucune photo pour l'instant. Prenez un rayon en photo, de face, à 1,5 m environ.",
+    reading: "Lecture du rayon",
+    facings: "produits trouvés", shelves: "étagères", seconds: "secondes",
+    perShelf: "Produits par étagère", shelf: "Étagère",
+    sensitivity: "Seuil de confiance", shoot: "Photographier un rayon", sample: "Essayer un rayon exemple",
+    privacy: "La photo reste sur votre téléphone : rien n'est envoyé. Ce test détecte les produits ; la reconnaissance des marques vient avec votre catalogue.",
+    loading: "Téléchargement du modèle ({mb} Mo, une seule fois)", init: "Préparation du modèle", ready: "Prêt. Modèle chargé sur l'appareil.",
+    failed: "Le modèle n'a pas pu se charger. Vérifiez la connexion et rechargez la page.", imgFailed: "Impossible de lire cette image.",
+  },
+  en: {
+    title: "Test shelf detection",
+    sub: "Photograph a shelf: Basira finds every product, right on your phone.",
+    empty: "No photo yet. Shoot a shelf straight on, about 1.5 m away.",
+    reading: "Reading the shelf",
+    facings: "products found", shelves: "shelves", seconds: "seconds",
+    perShelf: "Products per shelf", shelf: "Shelf",
+    sensitivity: "Confidence threshold", shoot: "Photograph a shelf", sample: "Try a sample shelf",
+    privacy: "Your photo stays on your phone: nothing is uploaded. This test finds products; brand recognition comes with your catalog.",
+    loading: "Downloading the model ({mb} MB, first time only)", init: "Preparing the model", ready: "Ready. Model running on this device.",
+    failed: "The model couldn't load. Check your connection and reload.", imgFailed: "Couldn't read that image.",
+  },
+};
+
+let lang = (navigator.language || "fr").startsWith("en") ? "en" : "fr";
+let session = null, lastBitmap = null, lastRaw = null, statusKey = "loading";
+const $ = (id) => document.getElementById(id);
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = T[lang][el.dataset.t]; });
+  document.querySelectorAll(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  setStatus(statusKey);
+  if (lastRaw) render();
+}
+function setStatus(key, cls) {
+  statusKey = key;
+  $("statusText").textContent = T[lang][key].replace("{mb}", MODEL_MB);
+  if (cls !== undefined) $("status").className = "status " + cls;
+}
+
+async function fetchModel() {
+  let cache = null;
+  try { cache = await caches.open(CACHE); const hit = await cache.match(MODEL_URL); if (hit) return new Uint8Array(await hit.arrayBuffer()); } catch {}
+  const res = await fetch(MODEL_URL);
+  if (!res.ok) throw new Error("model http " + res.status);
+  const total = Number(res.headers.get("content-length")) || MODEL_MB * 1e6;
+  const reader = res.body.getReader();
+  const parts = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    $("barFill").style.width = Math.min(100, (got / total) * 100).toFixed(1) + "%";
+  }
+  const buf = new Uint8Array(got); let o = 0;
+  for (const p of parts) { buf.set(p, o); o += p.length; }
+  try { if (cache) await cache.put(MODEL_URL, new Response(buf.slice())); } catch {}
+  return buf;
+}
+
+async function init() {
+  applyLang();
+  try {
+    ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
+    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+    setStatus("loading", "");
+    const bytes = await fetchModel();
+    setStatus("init");
+    session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    $("bar").hidden = true;
+    setStatus("ready", "ready");
+    $("shoot").disabled = $("sample").disabled = false;
+  } catch (e) {
+    console.error(e);
+    setStatus("failed", "error");
+  }
+}
+
+/** Same preprocessing as the Python ONNX detector: short side 800 (long side max 1333), ImageNet normalisation. */
+function toTensor(bitmap) {
+  const w = bitmap.width, h = bitmap.height;
+  const s = Math.min(800 / Math.min(w, h), 1333 / Math.max(w, h));
+  const nw = Math.round(w * s), nh = Math.round(h * s);
+  const c = new OffscreenCanvas(nw, nh), ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bitmap, 0, 0, nw, nh);
+  const px = ctx.getImageData(0, 0, nw, nh).data, n = nw * nh, data = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    data[i] = (px[i * 4] / 255 - MEAN[0]) / STD[0];
+    data[n + i] = (px[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
+    data[2 * n + i] = (px[i * 4 + 2] / 255 - MEAN[2]) / STD[2];
+  }
+  return new ort.Tensor("float32", data, [1, 3, nh, nw]);
+}
+
+/** Softmax over (product, no-object); keep boxes above the threshold, in source-image pixels. */
+function decode(logits, boxes, w, h, thr) {
+  const [, q, k] = logits.dims, L = logits.data, B = boxes.data, out = [];
+  for (let i = 0; i < q; i++) {
+    let max = -Infinity;
+    for (let j = 0; j < k; j++) max = Math.max(max, L[i * k + j]);
+    let sum = 0, best = 0;
+    for (let j = 0; j < k; j++) { const e = Math.exp(L[i * k + j] - max); sum += e; if (j < k - 1) best = Math.max(best, e); }
+    const score = best / sum;
+    if (score < thr) continue;
+    const cx = B[i * 4], cy = B[i * 4 + 1], bw = B[i * 4 + 2], bh = B[i * 4 + 3];
+    out.push({ x1: (cx - bw / 2) * w, y1: (cy - bh / 2) * h, x2: (cx + bw / 2) * w, y2: (cy + bh / 2) * h, score });
+  }
+  return out;
+}
+
+/** Group facings into shelves by their bottom edges: a new shelf starts at a jump larger than half a facing. */
+function shelves(dets) {
+  if (!dets.length) return [];
+  const sorted = [...dets].sort((a, b) => a.y2 - b.y2);
+  const hs = sorted.map((d) => d.y2 - d.y1).sort((a, b) => a - b);
+  const gap = hs[Math.floor(hs.length / 2)] * 0.5;
+  const groups = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].y2 - sorted[i - 1].y2 > gap) groups.push([]);
+    groups[groups.length - 1].push(sorted[i]);
+  }
+  return groups;
+}
+
+async function analyze(bitmap) {
+  lastBitmap = bitmap;
+  $("empty").hidden = true;
+  $("canvas").hidden = false;
+  draw([]);
+  $("stage").classList.add("working");
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    const t0 = performance.now();
+    const out = await session.run({ pixel_values: toTensor(bitmap) });
+    lastRaw = { logits: out.logits, boxes: out.pred_boxes, seconds: (performance.now() - t0) / 1000 };
+    render();
+  } finally {
+    $("stage").classList.remove("working");
+  }
+}
+
+function render() {
+  const thr = Number($("sens").value);
+  const dets = decode(lastRaw.logits, lastRaw.boxes, lastBitmap.width, lastBitmap.height, thr);
+  const groups = shelves(dets);
+  draw(dets);
+  $("results").hidden = false;
+  $("kFacings").textContent = dets.length;
+  $("kShelves").textContent = groups.length;
+  $("kTime").textContent = lastRaw.seconds.toFixed(1);
+  const max = Math.max(1, ...groups.map((g) => g.length));
+  $("shelfRows").replaceChildren(...groups.map((g, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<span>${T[lang].shelf} ${i + 1}</span><i style="width:${(g.length / max) * 100}%"></i><b>${g.length}</b>`;
+    return row;
+  }));
+}
+
+function draw(dets) {
+  const c = $("canvas"), b = lastBitmap;
+  const s = Math.min(1, 1400 / Math.max(b.width, b.height));
+  c.width = Math.round(b.width * s); c.height = Math.round(b.height * s);
+  const ctx = c.getContext("2d");
+  ctx.drawImage(b, 0, 0, c.width, c.height);
+  const lw = Math.max(2, c.width / 400);
+  for (const d of dets) {
+    const x = d.x1 * s, y = d.y1 * s, w = (d.x2 - d.x1) * s, h = (d.y2 - d.y1) * s;
+    ctx.lineWidth = lw * 2; ctx.strokeStyle = "rgba(14,21,18,.7)"; ctx.strokeRect(x, y, w, h);
+    ctx.lineWidth = lw; ctx.strokeStyle = "#C8F135"; ctx.strokeRect(x, y, w, h);
+  }
+}
+
+async function loadFile(file) {
+  try { await analyze(await createImageBitmap(file, { imageOrientation: "from-image" })); }
+  catch (e) { console.error(e); alertStatus(); }
+}
+async function loadSample() {
+  try {
+    const res = await fetch(SAMPLE_URL, { mode: "cors" });
+    await analyze(await createImageBitmap(await res.blob()));
+  } catch (e) { console.error(e); alertStatus(); }
+}
+function alertStatus() { $("statusText").textContent = T[lang].imgFailed; $("status").className = "status error"; }
+
+$("shoot").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });
+$("sample").addEventListener("click", loadSample);
+$("sens").addEventListener("input", () => { $("sensValue").textContent = Number($("sens").value).toFixed(2); if (lastRaw) render(); });
+document.querySelectorAll(".lang button").forEach((b) => b.addEventListener("click", () => { lang = b.dataset.lang; applyLang(); }));
+$("sensValue").textContent = Number($("sens").value).toFixed(2);
+init();
+</script>
+</body>
+</html>
