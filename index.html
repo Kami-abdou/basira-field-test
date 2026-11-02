@@ -141,25 +141,27 @@ const T = {
     title: "Testez la détection en rayon",
     sub: "Photographiez un rayon : Basira repère chaque produit, directement sur votre téléphone.",
     empty: "Aucune photo pour l'instant. Prenez un rayon en photo, de face, à 1,5 m environ.",
-    reading: "Lecture du rayon",
+    reading: "Lecture du rayon (10 à 20 s sur téléphone)",
     facings: "produits trouvés", shelves: "étagères", seconds: "secondes",
     perShelf: "Produits par étagère", shelf: "Étagère",
     sensitivity: "Seuil de confiance", shoot: "Photographier un rayon", sample: "Essayer un rayon exemple",
     privacy: "La photo reste sur votre téléphone : rien n'est envoyé. Ce test détecte les produits ; la reconnaissance des marques vient avec votre catalogue.",
     loading: "Téléchargement du modèle ({mb} Mo, une seule fois)", init: "Préparation du modèle", ready: "Prêt. Modèle chargé sur l'appareil.",
     failed: "Le modèle n'a pas pu se charger. Vérifiez la connexion et rechargez la page.", imgFailed: "Impossible de lire cette image.",
+    runFailed: "L'analyse a échoué sur cet appareil (mémoire insuffisante ?). Fermez les autres onglets et réessayez.",
   },
   en: {
     title: "Test shelf detection",
     sub: "Photograph a shelf: Basira finds every product, right on your phone.",
     empty: "No photo yet. Shoot a shelf straight on, about 1.5 m away.",
-    reading: "Reading the shelf",
+    reading: "Reading the shelf (10 to 20 s on a phone)",
     facings: "products found", shelves: "shelves", seconds: "seconds",
     perShelf: "Products per shelf", shelf: "Shelf",
     sensitivity: "Confidence threshold", shoot: "Photograph a shelf", sample: "Try a sample shelf",
     privacy: "Your photo stays on your phone: nothing is uploaded. This test finds products; brand recognition comes with your catalog.",
     loading: "Downloading the model ({mb} MB, first time only)", init: "Preparing the model", ready: "Ready. Model running on this device.",
     failed: "The model couldn't load. Check your connection and reload.", imgFailed: "Couldn't read that image.",
+    runFailed: "The analysis failed on this device (out of memory?). Close other tabs and try again.",
   },
 };
 
@@ -223,7 +225,8 @@ function toTensor(bitmap) {
   const w = bitmap.width, h = bitmap.height;
   const s = Math.min(800 / Math.min(w, h), 1333 / Math.max(w, h));
   const nw = Math.round(w * s), nh = Math.round(h * s);
-  const c = new OffscreenCanvas(nw, nh), ctx = c.getContext("2d");
+  const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(nw, nh) : Object.assign(document.createElement("canvas"), { width: nw, height: nh });
+  const ctx = c.getContext("2d");
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(bitmap, 0, 0, nw, nh);
   const px = ctx.getImageData(0, 0, nw, nh).data, n = nw * nh, data = new Float32Array(3 * n);
@@ -277,6 +280,7 @@ async function analyze(bitmap) {
     const out = await session.run({ pixel_values: toTensor(bitmap) });
     lastRaw = { logits: out.logits, boxes: out.pred_boxes, seconds: (performance.now() - t0) / 1000 };
     render();
+    $("results").scrollIntoView({ behavior: "smooth", block: "start" });
   } finally {
     $("stage").classList.remove("working");
   }
@@ -291,6 +295,7 @@ function render() {
   $("kFacings").textContent = dets.length;
   $("kShelves").textContent = groups.length;
   $("kTime").textContent = lastRaw.seconds.toFixed(1);
+  if ($("status").classList.contains("error")) { $("status").className = "status ready"; $("statusText").textContent = T[lang].ready; }
   const max = Math.max(1, ...groups.map((g) => g.length));
   $("shelfRows").replaceChildren(...groups.map((g, i) => {
     const row = document.createElement("div");
@@ -314,17 +319,24 @@ function draw(dets) {
   }
 }
 
+async function decode(blob) {
+  try { return await createImageBitmap(blob, { imageOrientation: "from-image" }); } catch {}
+  try { return await createImageBitmap(blob); } catch {}
+  const url = URL.createObjectURL(blob);
+  return await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
+}
 async function loadFile(file) {
-  try { await analyze(await createImageBitmap(file, { imageOrientation: "from-image" })); }
-  catch (e) { console.error(e); alertStatus(); }
+  let bitmap;
+  try { bitmap = await decode(file); } catch (e) { console.error(e); return alertStatus("imgFailed"); }
+  try { await analyze(bitmap); } catch (e) { console.error(e); alertStatus("runFailed"); }
 }
 async function loadSample() {
   try {
     const res = await fetch(SAMPLE_URL, { mode: "cors" });
-    await analyze(await createImageBitmap(await res.blob()));
-  } catch (e) { console.error(e); alertStatus(); }
+    await analyze(await decode(await res.blob()));
+  } catch (e) { console.error(e); alertStatus("runFailed"); }
 }
-function alertStatus() { $("statusText").textContent = T[lang].imgFailed; $("status").className = "status error"; }
+function alertStatus(key) { $("statusText").textContent = T[lang][key]; $("status").className = "status error"; }
 
 $("shoot").addEventListener("click", () => $("file").click());
 $("file").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });

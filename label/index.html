@@ -37,6 +37,11 @@
   }
   .done-badge { color: var(--signal); font-weight: 600; }
   #photoList div { padding: 6px 8px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  #results table { width: 100%; border-collapse: collapse; margin: 4px 0 10px; font-variant-numeric: tabular-nums; }
+  #results td { padding: 3px 0; border-bottom: 1px solid var(--border); }
+  #results td:last-child { text-align: right; color: var(--text); font-weight: 600; }
+  #results .bar { display: inline-block; height: 8px; border-radius: 0 4px 4px 0; vertical-align: middle; margin-right: 6px; }
+  #results small { display: block; margin-top: 6px; }
   #photoList div.cur { background: var(--surface-2); color: var(--text); }
 </style>
 </head>
@@ -62,7 +67,12 @@
 <main>
   <div id="wrap"><div id="empty" style="padding:40px;max-width:560px;color:#b9beb3"><h2 style="color:#f4f5f0;margin-top:0">Start here</h2><p>Click <b>Open photos</b> and choose your store photos (the STORES files). The boxes the model found are drawn in automatically for those photos; you fix them and tag the brands.</p></div><canvas id="cv"></canvas></div>
   <aside>
-    <h2>What to do on each photo</h2>
+    <h2>Results</h2>
+    <div id="results" class="stat">Open photos to see how the model compares with your corrections.</div>
+    <h2 style="margin-top:16px">Your photos</h2>
+    <div id="photoList" class="stat">No photos open yet.</div>
+    <p class="stat">Photos never leave this computer. Work is saved in this browser; when finished, click <b>Download labels</b> and send the file back.</p>
+    <h2 style="margin-top:16px">What to do on each photo</h2>
     <ol>
       <li><b>Tag brands</b>: drag across a run of the same brand to select those boxes, then press its number key. Click a single box to pick just one. Use <kbd>9</kbd> Other for brands not in the list.</li>
       <li><b>Delete wrong boxes</b> (shelf edges, price tags, duplicates): select them and press <kbd>Del</kbd>.</li>
@@ -77,9 +87,6 @@
       <li><kbd>D</kbd> draw mode on/off · <kbd>Ctrl</kbd>+click or <kbd>Ctrl</kbd>+drag add to selection</li>
       <li><kbd>+</kbd>/<kbd>−</kbd> zoom · <kbd>N</kbd>/<kbd>P</kbd> next/previous photo</li>
     </ul>
-    <h2>Your photos</h2>
-    <div id="photoList" class="stat">No photos open yet.</div>
-    <p class="stat">Photos never leave this computer. Work is saved in this browser; when finished, click <b>Download labels</b> and send the file back.</p>
   </aside>
 </main>
 <script>
@@ -118,7 +125,7 @@ async function addFiles(files) {
     const p = { name: file.name, width: im.naturalWidth, height: im.naturalHeight, img: im, boxes: [], done: false, stem: null };
     const tail = file.name.replace(/\.[^.]+$/, "").split(" ").pop();
     const pre = PRE.find((q) => q.width === p.width && q.height === p.height) || PRE.find((q) => q.name_tail === tail);
-    if (pre) p.stem = pre.stem;
+    if (pre) { p.stem = pre.stem; p.model = pre.boxes; }
     const saved = readSaved(p);
     if (saved) { p.boxes = saved.boxes; p.done = saved.done; }
     else if (pre) p.boxes = pre.boxes.map((b) => ({ bbox: b.slice(), brand: null }));
@@ -136,7 +143,52 @@ function load(i) {
   zoom = Math.max(1, Math.min(3, ($("wrap").clientWidth - 20) / img.width));
   render(); renderList();
 }
+function iou(a, b) {
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (w <= 0 || h <= 0) return 0;
+  const inter = w * h;
+  return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter);
+}
+/** Your boxes are the truth; the model's original boxes are its answer. One-to-one matching at IoU >= 0.5. */
+function compare(truth, model) {
+  const used = new Uint8Array(model.length); let hit = 0;
+  for (const t of truth) {
+    let best = -1, bestIou = 0.5;
+    for (let j = 0; j < model.length; j++) {
+      if (used[j]) continue;
+      const v = iou(t.bbox, model[j]);
+      if (v >= bestIou) { bestIou = v; best = j; }
+    }
+    if (best >= 0) { used[best] = 1; hit++; }
+  }
+  return { truth: truth.length, model: model.length, hit };
+}
+function renderResults() {
+  if (!list.length) return;
+  if (img) { list[cur].boxes = boxes; list[cur].done = done; }
+  const pct = (a, b) => (b ? Math.round((100 * a) / b) + "%" : "n/a");
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  const scope = (photos) => {
+    const r = photos.filter((p) => p.model).reduce((acc, p) => { const c = compare(p.boxes, p.model); acc.truth += c.truth; acc.model += c.model; acc.hit += c.hit; return acc; }, { truth: 0, model: 0, hit: 0 });
+    return row("Products found by the model", `${pct(r.hit, r.truth)} <span class="stat">(${r.hit}/${r.truth})</span>`) +
+      row("Model boxes that are real products", pct(r.hit, r.model)) +
+      row("Product count error", pct(Math.abs(r.model - r.truth), r.truth));
+  };
+  const donePhotos = list.filter((p) => p.done);
+  const tagged = list.flatMap((p) => p.boxes.filter((b) => b.brand));
+  const shares = {};
+  tagged.forEach((b) => (shares[b.brand] = (shares[b.brand] || 0) + 1));
+  const sorted = Object.entries(shares).sort((a, b) => b[1] - a[1]);
+  const max = sorted.length ? sorted[0][1] : 1;
+  $("results").innerHTML =
+    `<b style="color:var(--text)">This photo</b><table>${scope([list[cur]])}</table>` +
+    `<b style="color:var(--text)">Photos marked done (${donePhotos.length})</b><table>${donePhotos.length ? scope(donePhotos) : row("Mark a photo done to include it", "")}</table>` +
+    `<b style="color:var(--text)">Share of shelf, from your brand tags (${tagged.length} products)</b><table>` +
+    (sorted.length ? sorted.map(([b, n]) => row(`<span class="bar" style="width:${Math.round((60 * n) / max)}px;background:${COLOR[b]}"></span>${b}`, pct(n, tagged.length))).join("") : row("Tag brands to see shares", "")) +
+    `</table><small>Brand-recognition accuracy (is each product's brand named right?) runs on the Basira server: click <b>Download labels</b> and send the file.</small>`;
+}
 function renderList() {
+  renderResults();
   $("photoList").replaceChildren(...list.map((p, i) => {
     const el = document.createElement("div");
     const untagged = p.boxes.filter((b) => !b.brand).length;
