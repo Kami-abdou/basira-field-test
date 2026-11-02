@@ -4,6 +4,8 @@ A one-page web app to test Basira's shelf detector on a phone. Open it, photogra
 
 **Live:** https://kami-abdou.github.io/basira-field-test/
 
+**Labelling tool:** https://kami-abdou.github.io/basira-field-test/label/. Open your own shelf photos and correct the boxes plus brand per product, then download the labels to measure accuracy. Photos stay on your computer; `label/prelabels.json` holds only box coordinates.
+
 ## The model
 
 | | |

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Basira Label</title>
+<meta name="description" content="Label shelf photos (box and brand per product) to measure Basira accuracy. Photos stay on your computer.">
+<style>
+  :root { --bg:#0e1512; --surface:#16231e; --surface-2:#1d2b25; --border:#2a3832; --text:#f4f5f0; --text-2:#b9beb3; --signal:#c8f135; --harissa:#f0644b;
+          font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: grid; grid-template-rows: auto auto 1fr; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  header b { font-size: 15px; }
+  button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--text-2); }
+  button.primary { background: var(--signal); color: #0e1512; border-color: var(--signal); font-weight: 600; }
+  .stat { color: var(--text-2); }
+  .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .warn b { color: var(--harissa); }
+  #brands { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .brand { display: flex; gap: 6px; align-items: center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer; user-select: none; }
+  .brand i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .brand kbd { font: 12px ui-monospace, monospace; color: var(--text-2); }
+  .brand.active { border-color: var(--signal); }
+  main { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+  #wrap { overflow: auto; position: relative; background: #050807; }
+  canvas { display: block; cursor: crosshair; }
+  aside { border-left: 1px solid var(--border); padding: 14px; overflow: auto; background: var(--surface); }
+  aside h2 { font-size: 14px; margin: 0 0 8px; }
+  aside li { margin-bottom: 6px; color: var(--text-2); }
+  aside kbd { font: 12px ui-monospace, monospace; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; color: var(--text); }
+  #saved { min-width: 90px; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; grid-template-rows: minmax(55vh, 1fr) auto; }
+    aside { border-left: 0; border-top: 1px solid var(--border); }
+  }
+  .done-badge { color: var(--signal); font-weight: 600; }
+  #photoList div { padding: 6px 8px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  #photoList div.cur { background: var(--surface-2); color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <b>Basira Label</b>
+  <button id="open" class="primary" title="Choose shelf photos from this computer">Open photos</button>
+  <input id="files" type="file" accept="image/*" multiple hidden>
+  <button id="prev" title="Previous photo (P)">‹ Prev</button>
+  <span id="which" class="stat"></span>
+  <button id="next" title="Next photo (N)">Next ›</button>
+  <span class="stat">Boxes <b id="nBoxes">0</b></span>
+  <span class="stat">Brand tagged <b id="nTagged">0</b></span>
+  <span class="stat" id="untaggedWrap">Untagged <b id="nUntagged">0</b></span>
+  <button id="drawBtn" title="Toggle draw mode (D)">Draw boxes: off</button>
+  <button id="zoomOut" title="Zoom out (-)">−</button><span id="zoomVal" class="stat">100%</span><button id="zoomIn" title="Zoom in (+)">+</button>
+  <button id="done" title="Mark this photo finished">Mark photo done</button>
+  <button id="download" class="primary" title="Download all labels as one file to send back">Download labels</button>
+  <button id="copy" title="Copy all labels to paste in a message">Copy labels</button>
+  <span id="saved" class="stat"></span>
+</header>
+<div id="brands"></div>
+<main>
+  <div id="wrap"><div id="empty" style="padding:40px;max-width:560px;color:#b9beb3"><h2 style="color:#f4f5f0;margin-top:0">Start here</h2><p>Click <b>Open photos</b> and choose your store photos (the STORES files). The boxes the model found are drawn in automatically for those photos; you fix them and tag the brands.</p></div><canvas id="cv"></canvas></div>
+  <aside>
+    <h2>What to do on each photo</h2>
+    <ol>
+      <li><b>Tag brands</b>: drag across a run of the same brand to select those boxes, then press its number key. Click a single box to pick just one. Use <kbd>9</kbd> Other for brands not in the list.</li>
+      <li><b>Delete wrong boxes</b> (shelf edges, price tags, duplicates): select them and press <kbd>Del</kbd>.</li>
+      <li><b>Draw missing products</b>: press <kbd>D</kbd> (draw mode), drag one box per visible product face, press <kbd>D</kbd> again to go back to selecting. <kbd>Shift</kbd>+drag also draws.</li>
+      <li>When every product has a box and a brand, click <b>Mark photo done</b>.</li>
+    </ol>
+    <h2>Keys</h2>
+    <ul>
+      <li><kbd>1</kbd>…<kbd>9</kbd> set brand of selected boxes (new boxes get the last brand used)</li>
+      <li><kbd>0</kbd> clear brand · <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</li>
+      <li><kbd>U</kbd> select all untagged · <kbd>A</kbd> select all · <kbd>Esc</kbd> clear selection</li>
+      <li><kbd>D</kbd> draw mode on/off · <kbd>Ctrl</kbd>+click or <kbd>Ctrl</kbd>+drag add to selection</li>
+      <li><kbd>+</kbd>/<kbd>−</kbd> zoom · <kbd>N</kbd>/<kbd>P</kbd> next/previous photo</li>
+    </ul>
+    <h2>Your photos</h2>
+    <div id="photoList" class="stat">No photos open yet.</div>
+    <p class="stat">Photos never leave this computer. Work is saved in this browser; when finished, click <b>Download labels</b> and send the file back.</p>
+  </aside>
+</main>
+<script>
+"use strict";
+const BRANDS = [
+  ["Colgate", "#e53935"], ["Signal", "#1e88e5"], ["Lilas", "#00bcd4"], ["Sensodyne", "#ab47bc"], ["Aquafresh", "#43a047"],
+  ["Crest", "#fdd835"], ["Closeup", "#fb8c00"], ["Miswak", "#a1887f"], ["Other", "#bdbdbd"],
+];
+const COLOR = Object.fromEntries(BRANDS);
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+let drawMode = false;
+document.getElementById("cv").hidden = true;
+let list = [], cur = 0, img = null, boxes = [], done = false, sel = new Set(), undo = [], zoom = 1, lastBrand = null, drag = null, saveTimer = null;
+
+BRANDS.forEach(([name, color], i) => {
+  const el = document.createElement("div");
+  el.className = "brand"; el.dataset.brand = name;
+  el.innerHTML = `<i style="background:${color}"></i>${name} <kbd>${i + 1}</kbd>`;
+  el.onclick = () => setBrand(name);
+  $("brands").appendChild(el);
+});
+
+let PRE = [];
+fetch("prelabels.json").then((r) => (r.ok ? r.json() : [])).then((j) => (PRE = j)).catch(() => {});
+const storeKey = (p) => `basira-label:${p.width}x${p.height}:${p.name}`;
+function readSaved(p) { try { const v = localStorage.getItem(storeKey(p)); return v ? JSON.parse(v) : null; } catch { return null; } }
+function writeSaved(p) { try { localStorage.setItem(storeKey(p), JSON.stringify({ boxes: p.boxes, done: p.done })); return true; } catch { return false; } }
+
+async function addFiles(files) {
+  const before = list.length;
+  for (const file of files) {
+    const url = URL.createObjectURL(file);
+    const im = await new Promise((res, rej) => { const x = new Image(); x.onload = () => res(x); x.onerror = rej; x.src = url; }).catch(() => null);
+    if (!im) continue;
+    const p = { name: file.name, width: im.naturalWidth, height: im.naturalHeight, img: im, boxes: [], done: false, stem: null };
+    const tail = file.name.replace(/\.[^.]+$/, "").split(" ").pop();
+    const pre = PRE.find((q) => q.width === p.width && q.height === p.height) || PRE.find((q) => q.name_tail === tail);
+    if (pre) p.stem = pre.stem;
+    const saved = readSaved(p);
+    if (saved) { p.boxes = saved.boxes; p.done = saved.done; }
+    else if (pre) p.boxes = pre.boxes.map((b) => ({ bbox: b.slice(), brand: null }));
+    if (!list.some((q) => storeKey(q) === storeKey(p))) list.push(p);
+  }
+  if (list.length) { $("empty").hidden = true; load(before < list.length ? before : cur); }
+}
+function load(i) {
+  if (!list.length) return;
+  if (img) { list[cur].boxes = boxes; list[cur].done = done; }
+  cur = (i + list.length) % list.length;
+  const p = list[cur];
+  boxes = p.boxes; done = p.done; sel = new Set(); undo = [];
+  img = p.img;
+  zoom = Math.max(1, Math.min(3, ($("wrap").clientWidth - 20) / img.width));
+  render(); renderList();
+}
+function renderList() {
+  $("photoList").replaceChildren(...list.map((p, i) => {
+    const el = document.createElement("div");
+    const untagged = p.boxes.filter((b) => !b.brand).length;
+    el.className = i === cur ? "cur" : "";
+    const label = p.name.length > 26 ? p.name.slice(0, 24) + "..." : p.name;
+    el.innerHTML = `<span></span><span>${p.done ? "done" : untagged + " left"}</span>`;
+    el.firstChild.textContent = label;
+    el.onclick = () => load(i);
+    return el;
+  }));
+}
+function exportJson() {
+  if (img) { list[cur].boxes = boxes; list[cur].done = done; }
+  return JSON.stringify({ app: "basira-label", version: 1, exported_at: new Date().toISOString(),
+    photos: list.map((p) => ({ name: p.name, width: p.width, height: p.height, matched_stem: p.stem, done: p.done, boxes: p.boxes })) });
+}
+const scale = () => zoom;
+function render() {
+  if (!img) return;
+  cv.hidden = false;
+  const s = scale();
+  cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  boxes.forEach((b, i) => {
+    const [x1, y1, x2, y2] = b.bbox.map((v) => v * s);
+    if (b.brand) { ctx.fillStyle = COLOR[b.brand] + "33"; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); }
+    ctx.setLineDash(b.brand ? [] : [4, 3]);
+    ctx.lineWidth = sel.has(i) ? 3 : 1.6;
+    ctx.strokeStyle = sel.has(i) ? "#c8f135" : b.brand ? COLOR[b.brand] : "#f4f5f0";
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  });
+  ctx.setLineDash([]);
+  if (drag && drag.moved) {
+    const [x1, y1, x2, y2] = norm(drag.a, drag.b).map((v) => v * s);
+    ctx.strokeStyle = drag.mode === "lasso" ? "#c8f135" : "#ffffff"; ctx.lineWidth = 1.5; ctx.setLineDash(drag.mode === "lasso" ? [6, 4] : []);
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.setLineDash([]);
+  }
+  const tagged = boxes.filter((b) => b.brand).length;
+  $("which").textContent = `${cur + 1}/${list.length}`;
+  $("nBoxes").textContent = boxes.length; $("nTagged").textContent = tagged; $("nUntagged").textContent = boxes.length - tagged;
+  $("untaggedWrap").className = "stat" + (boxes.length - tagged ? " warn" : "");
+  $("zoomVal").textContent = Math.round(zoom * 100) + "%";
+  $("drawBtn").textContent = "Draw boxes: " + (drawMode ? "ON" : "off");
+  $("drawBtn").className = drawMode ? "primary" : "";
+  cv.style.cursor = drawMode ? "crosshair" : "cell";
+  $("done").textContent = done ? "Done ✓ (click to reopen)" : "Mark photo done";
+  document.querySelectorAll(".brand").forEach((el) => el.classList.toggle("active", el.dataset.brand === lastBrand));
+}
+function norm(a, b) { return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)]; }
+function toImg(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / scale(), y: (e.clientY - r.top) / scale() }; }
+function hit(p) {
+  let best = -1, area = Infinity;
+  boxes.forEach((b, i) => {
+    const [x1, y1, x2, y2] = b.bbox;
+    if (p.x >= x1 && p.x <= x2 && p.y >= y1 && p.y <= y2 && (x2 - x1) * (y2 - y1) < area) { best = i; area = (x2 - x1) * (y2 - y1); }
+  });
+  return best;
+}
+function snapshot() { undo.push(JSON.stringify(boxes)); if (undo.length > 100) undo.shift(); }
+function changed() {
+  render();
+  $("saved").textContent = "Saving…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 500);
+}
+function save() {
+  const p = list[cur]; p.boxes = boxes; p.done = done;
+  $("saved").textContent = writeSaved(p) ? "Saved in this browser" : "Not saved (browser storage blocked): download labels now";
+  renderList();
+}
+function setBrand(name) {
+  lastBrand = name;
+  if (!sel.size) return render();
+  snapshot(); sel.forEach((i) => (boxes[i].brand = name)); changed();
+}
+
+// Click = pick one box. Drag = select every box whose centre is inside (shelves are so dense that a drag
+// almost always starts on a box). Draw mode (D key or button, or Shift+drag) = draw a new box.
+cv.addEventListener("pointerdown", (e) => {
+  const p = toImg(e);
+  drag = { mode: drawMode || e.shiftKey ? "draw" : "lasso", a: p, b: p, add: e.ctrlKey || e.metaKey };
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  drag.b = toImg(e);
+  drag.moved = Math.abs(drag.b.x - drag.a.x) * scale() > 4 || Math.abs(drag.b.y - drag.a.y) * scale() > 4;
+  render();
+});
+cv.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const r = norm(drag.a, drag.b);
+  if (!drag.moved) {
+    const h = hit(drag.a);
+    if (drag.add && h >= 0) sel.has(h) ? sel.delete(h) : sel.add(h);
+    else sel = h >= 0 ? new Set([h]) : new Set();
+  } else if (drag.mode === "draw") {
+    snapshot(); boxes.push({ bbox: r, brand: lastBrand }); sel = new Set([boxes.length - 1]); drag = null; changed(); return;
+  } else {
+    if (!drag.add) sel = new Set();
+    boxes.forEach((b, i) => {
+      const cx = (b.bbox[0] + b.bbox[2]) / 2, cy = (b.bbox[1] + b.bbox[3]) / 2;
+      if (cx >= r[0] && cx <= r[2] && cy >= r[1] && cy <= r[3]) sel.add(i);
+    });
+  }
+  drag = null; render();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || !img) return;
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === "z") { if (undo.length) { boxes = JSON.parse(undo.pop()); sel = new Set(); changed(); } e.preventDefault(); return; }
+  if (/^[1-9]$/.test(e.key)) return setBrand(BRANDS[Number(e.key) - 1][0]);
+  if (e.key === "0" && sel.size) { snapshot(); sel.forEach((i) => (boxes[i].brand = null)); return changed(); }
+  if ((e.key === "Delete" || e.key === "Backspace" || k === "x") && sel.size) {
+    snapshot(); boxes = boxes.filter((_, i) => !sel.has(i)); sel = new Set(); e.preventDefault(); return changed();
+  }
+  if (e.key === "Escape") { sel = new Set(); return render(); }
+  if (k === "a") { sel = new Set(boxes.map((_, i) => i)); return render(); }
+  if (k === "u") { sel = new Set(boxes.flatMap((b, i) => (b.brand ? [] : [i]))); return render(); }
+  if (k === "d") { drawMode = !drawMode; return render(); }
+  if (k === "n") return load(cur + 1);
+  if (k === "p") return load(cur - 1);
+  if (e.key === "+" || e.key === "=") { zoom = Math.min(6, zoom * 1.25); return render(); }
+  if (e.key === "-") { zoom = Math.max(0.3, zoom / 1.25); return render(); }
+});
+$("prev").onclick = () => load(cur - 1);
+$("next").onclick = () => load(cur + 1);
+$("zoomIn").onclick = () => { zoom = Math.min(6, zoom * 1.25); render(); };
+$("zoomOut").onclick = () => { zoom = Math.max(0.3, zoom / 1.25); render(); };
+$("done").onclick = () => { done = !done; changed(); };
+$("drawBtn").onclick = () => { drawMode = !drawMode; render(); };
+
+$("open").onclick = () => $("files").click();
+$("files").onchange = (e) => { addFiles([...e.target.files]); e.target.value = ""; };
+$("download").onclick = () => {
+  if (!list.length) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([exportJson()], { type: "application/json" }));
+  a.download = "basira-labels.json"; document.body.appendChild(a); a.click(); a.remove();
+  $("saved").textContent = "Downloaded basira-labels.json";
+};
+$("copy").onclick = async () => {
+  if (!list.length) return;
+  try { await navigator.clipboard.writeText(exportJson()); $("saved").textContent = "Copied: paste it in a message"; }
+  catch { $("saved").textContent = "Copy blocked: use Download labels"; }
+};
+window.addEventListener("beforeunload", () => { if (img) save(); });
+</script>
+</body>
+</html>
