@@ -124,7 +124,7 @@ async function addFiles(files) {
     if (!im) continue;
     const p = { name: file.name, width: im.naturalWidth, height: im.naturalHeight, img: im, boxes: [], done: false, stem: null };
     const tail = file.name.replace(/\.[^.]+$/, "").split(" ").pop();
-    const pre = PRE.find((q) => q.width === p.width && q.height === p.height) || PRE.find((q) => q.name_tail === tail);
+    const pre = PRE.find((q) => q.name_tail === tail) || PRE.find((q) => q.width === p.width && q.height === p.height);
     if (pre) { p.stem = pre.stem; p.model = pre.boxes; }
     const saved = readSaved(p);
     if (saved) { p.boxes = saved.boxes; p.done = saved.done; }
