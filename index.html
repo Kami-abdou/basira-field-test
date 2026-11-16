@@ -135,6 +135,7 @@ const MODEL_MB = 43;
 const CACHE = "basira-field-test-v1";
 const SAMPLE_URL = "https://images.unsplash.com/photo-1722639096482-4e1a805f9b0b?auto=format&fit=crop&w=1600&q=80";
 const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
+const MAX_SIDE = 1600; // photos are shrunk to this on load: enough for the model (1333 px) and the preview (1400 px)
 
 const T = {
   fr: {
@@ -148,7 +149,8 @@ const T = {
     privacy: "La photo reste sur votre téléphone : rien n'est envoyé. Ce test détecte les produits ; la reconnaissance des marques vient avec votre catalogue.",
     loading: "Téléchargement du modèle ({mb} Mo, une seule fois)", init: "Préparation du modèle", ready: "Prêt. Modèle chargé sur l'appareil.",
     failed: "Le modèle n'a pas pu se charger. Vérifiez la connexion et rechargez la page.", imgFailed: "Impossible de lire cette image.",
-    runFailed: "L'analyse a échoué sur cet appareil (mémoire insuffisante ?). Fermez les autres onglets et réessayez.",
+    memFailed: "Mémoire insuffisante sur cet appareil pour cette photo. Fermez les autres onglets et réessayez.",
+    runFailed: "L'analyse a échoué ({err}). Rechargez la page et réessayez.",
   },
   en: {
     title: "Test shelf detection",
@@ -161,7 +163,8 @@ const T = {
     privacy: "Your photo stays on your phone: nothing is uploaded. This test finds products; brand recognition comes with your catalog.",
     loading: "Downloading the model ({mb} MB, first time only)", init: "Preparing the model", ready: "Ready. Model running on this device.",
     failed: "The model couldn't load. Check your connection and reload.", imgFailed: "Couldn't read that image.",
-    runFailed: "The analysis failed on this device (out of memory?). Close other tabs and try again.",
+    memFailed: "Not enough memory on this device for this photo. Close other tabs and try again.",
+    runFailed: "The analysis failed ({err}). Reload the page and try again.",
   },
 };
 
@@ -210,7 +213,10 @@ async function init() {
     setStatus("loading", "");
     const bytes = await fetchModel();
     setStatus("init");
-    session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    // ORT's low-memory settings: no pooled memory arena, no cached allocation pattern.
+    session = await ort.InferenceSession.create(bytes, {
+      executionProviders: ["wasm"], graphOptimizationLevel: "all", enableCpuMemArena: false, enableMemPattern: false,
+    });
     $("bar").hidden = true;
     setStatus("ready", "ready");
     $("shoot").disabled = $("sample").disabled = false;
@@ -220,16 +226,21 @@ async function init() {
   }
 }
 
+function makeCanvas(w, h) {
+  return typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h });
+}
+
 /** Same preprocessing as the Python ONNX detector: short side 800 (long side max 1333), ImageNet normalisation. */
 function toTensor(bitmap) {
   const w = bitmap.width, h = bitmap.height;
   const s = Math.min(800 / Math.min(w, h), 1333 / Math.max(w, h));
   const nw = Math.round(w * s), nh = Math.round(h * s);
-  const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(nw, nh) : Object.assign(document.createElement("canvas"), { width: nw, height: nh });
-  const ctx = c.getContext("2d");
+  const c = makeCanvas(nw, nh);
+  const ctx = c.getContext("2d", { willReadFrequently: true }); // CPU canvas: same pixels every run, no GPU copy
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(bitmap, 0, 0, nw, nh);
   const px = ctx.getImageData(0, 0, nw, nh).data, n = nw * nh, data = new Float32Array(3 * n);
+  c.width = c.height = 0; // free the canvas backing store now, not at the next garbage collection
   for (let i = 0; i < n; i++) {
     data[i] = (px[i * 4] / 255 - MEAN[0]) / STD[0];
     data[n + i] = (px[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
@@ -268,8 +279,21 @@ function shelves(dets) {
   return groups;
 }
 
+/** Run the model on the whole photo. A failure inside the model run is almost always the phone running out of
+ *  memory. There is no smaller retry: this DETR needs its input short side near 800 px; smaller inputs or tiles
+ *  give wrong boxes. */
+async function detect(bitmap) {
+  try { return await session.run({ pixel_values: toTensor(bitmap) }); }
+  catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e)); // ORT can throw bare numbers
+    err.outOfMemory = true;
+    throw err;
+  }
+}
+
 async function analyze(bitmap) {
-  lastBitmap = bitmap;
+  if (lastBitmap && lastBitmap !== bitmap) lastBitmap.close?.();
+  lastBitmap = bitmap; lastRaw = null;
   $("empty").hidden = true;
   $("canvas").hidden = false;
   draw([]);
@@ -277,7 +301,7 @@ async function analyze(bitmap) {
   await new Promise((r) => setTimeout(r, 30));
   try {
     const t0 = performance.now();
-    const out = await session.run({ pixel_values: toTensor(bitmap) });
+    const out = await detect(bitmap);
     lastRaw = { logits: out.logits, boxes: out.pred_boxes, seconds: (performance.now() - t0) / 1000 };
     render();
     $("results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -319,24 +343,51 @@ function draw(dets) {
   }
 }
 
-async function decode(blob) {
-  try { return await createImageBitmap(blob, { imageOrientation: "from-image" }); } catch {}
-  try { return await createImageBitmap(blob); } catch {}
-  const url = URL.createObjectURL(blob);
-  return await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
+/** Decode a photo (EXIF rotation applied), with fallbacks for older phones. */
+async function decodeImage(blob) {
+  let img = null;
+  try { img = await createImageBitmap(blob, { imageOrientation: "from-image" }); } catch {}
+  if (!img) try { img = await createImageBitmap(blob); } catch {}
+  if (!img) {
+    const url = URL.createObjectURL(blob);
+    try { img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; }); }
+    finally { URL.revokeObjectURL(url); }
+  }
+  return shrink(img);
+}
+/** Camera photos are 12 MP or more; the model reads at most 1333 px, so keep a 1600 px copy and free the original. */
+function shrink(img) {
+  const s = MAX_SIDE / Math.max(img.width, img.height);
+  if (s >= 1) return img;
+  const c = makeCanvas(Math.round(img.width * s), Math.round(img.height * s));
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  img.close?.();
+  return c;
 }
 async function loadFile(file) {
   let bitmap;
-  try { bitmap = await decode(file); } catch (e) { console.error(e); return alertStatus("imgFailed"); }
-  try { await analyze(bitmap); } catch (e) { console.error(e); alertStatus("runFailed"); }
+  try { bitmap = await decodeImage(file); } catch (e) { console.error(e); return alertStatus("imgFailed"); }
+  await runSafely(bitmap);
 }
 async function loadSample() {
-  try {
-    const res = await fetch(SAMPLE_URL, { mode: "cors" });
-    await analyze(await decode(await res.blob()));
-  } catch (e) { console.error(e); alertStatus("runFailed"); }
+  let bitmap;
+  try { bitmap = await decodeImage(await (await fetch(SAMPLE_URL, { mode: "cors" })).blob()); }
+  catch (e) { console.error(e); return alertStatus("imgFailed"); }
+  await runSafely(bitmap);
 }
-function alertStatus(key) { $("statusText").textContent = T[lang][key]; $("status").className = "status error"; }
+async function runSafely(bitmap) {
+  try { await analyze(bitmap); }
+  catch (e) {
+    console.error(e);
+    alertStatus(e && e.outOfMemory ? "memFailed" : "runFailed", String((e && e.message) || e).slice(0, 120));
+  }
+}
+function alertStatus(key, detail) {
+  $("statusText").textContent = T[lang][key].replace("{err}", detail || "");
+  $("status").className = "status error";
+}
 
 $("shoot").addEventListener("click", () => $("file").click());
 $("file").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });
